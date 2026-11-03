@@ -1,0 +1,77 @@
+# ===== 复制下面全部内容，粘贴到 GitHub 网页的 .github/workflows/build.yml 里 =====
+# （本文件本身不用改，它只是给你复制用的副本）
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 编译 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: 定位工程
+        run: |
+          if [ -f app/build.gradle ]; then
+            echo "工程在仓库根目录"
+            echo "SRC=." >> "$GITHUB_ENV"
+          else
+            ZIP=$(ls -1 *.zip 2>/dev/null | head -n 1)
+            if [ -z "$ZIP" ]; then
+              echo "::error::仓库里既没有 app/build.gradle，也没有 xiaozhangben.zip"
+              exit 1
+            fi
+            echo "从 $ZIP 解压工程"
+            rm -rf _src
+            mkdir -p _src
+            unzip -q -o "$ZIP" -d _src
+            echo "SRC=_src" >> "$GITHUB_ENV"
+          fi
+
+      - name: 编译 Debug APK
+        run: gradle -p "$SRC" :app:assembleDebug --no-daemon --stacktrace
+
+      - name: 整理产物
+        run: |
+          mkdir -p out
+          cp "$SRC/app/build/outputs/apk/debug/app-debug.apk" out/xiaozhangben.apk
+          ls -lh out/
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaozhangben-apk
+          path: out/xiaozhangben.apk
+          if-no-files-found: error
+
+      - name: 发布 Release（手机直接下载安装）
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: 小账本 v1.0.${{ github.run_number }}
+          body: |
+            自动构建的 Android 安装包（Debug 签名，可直接安装）。
+
+            安装方法：下载 xiaozhangben.apk → 手机上点开 → 允许「安装未知应用」→ 安装完成。
+          files: out/xiaozhangben.apk
